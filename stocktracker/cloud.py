@@ -134,10 +134,8 @@ def my_shares_html(con, steps, notes):
 
 
 def write_site(con, cfg, steps, notes, out_dir, password=""):
-    page = report.recommended_html(con, cfg, top=my_shares_html(con, steps, notes),
-                                   extra_syms=portfolio.tracked_symbols(con))
-    page = page.replace("<title>Recommended shares</title>",
-                        "<title>Stock Tracker</title><meta name='robots' content='noindex'>")
+    from . import site
+    page = site.build(con, cfg, steps, notes)
     if password:
         page = lock(page, password)
     else:      # the page address is public: never publish your shares unlocked
