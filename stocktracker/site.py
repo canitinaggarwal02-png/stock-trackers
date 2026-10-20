@@ -205,7 +205,7 @@ PAGE = """<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <title>Stock Tracker</title><style>{css}</style></head><body><main>
 <div class='bar'><button class='back hidden' id='back' onclick='history.back()'>‹</button><h1 id='title'>📈 Stock Tracker</h1></div>
 <div id='home'><p class='muted'>{status}</p>{notes}<div class='tiles'>{tiles}</div>
-<p class='muted small'><b>Track record:</b> {track}</p></div>
+<p class='muted small'><b>Track record:</b> {track}</p><p><a href='#' onclick='savePage();return false'>⬇ Save this page as an HTML file</a></p></div>
 <div id='view' class='hidden'></div>
 <p class='muted small'>{disclaimer}</p></main>
 <script>
@@ -261,6 +261,11 @@ function drawChart(el){{
     el.querySelector('.tip').innerHTML=`<b>${{c.d[i]}}</b> · price ₹${{c.p[i]}}<br>Traded ${{fmt(c.t[i])}} · delivered ${{fmt(c.v[i])}}`+(c.t[i]&&c.v[i]?` (${{Math.round(100*c.v[i]/c.t[i])}}%)`:'')
       +`<br>Big players: bought ${{fmt(c.b[i])}} · sold ${{fmt(c.s[i])}}`+(c.n[i]?`<br><small>${{c.n[i]}}</small>`:'')
       +`<br>Market FII ₹${{f[i]??'–'}} cr · DII ₹${{ii[i]??'–'}} cr`; }};
+}}
+function savePage(){{
+  const a=document.createElement('a'), d=new Date().toISOString().slice(0,10);
+  a.href=URL.createObjectURL(new Blob(['<!doctype html>'+document.documentElement.outerHTML],{{type:'text/html'}}));
+  a.download='stock-tracker-'+d+'.html'; document.body.appendChild(a); a.click(); a.remove();
 }}
 addEventListener('hashchange',show); show();
 </script></body></html>"""

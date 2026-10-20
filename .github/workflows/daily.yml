@@ -9,7 +9,7 @@ on:
   workflow_dispatch:          # the "Run workflow" button
 
 permissions:
-  contents: read
+  contents: write   # to save the latest page file on the latest-page branch
   pages: write
   id-token: write
 
@@ -59,6 +59,15 @@ jobs:
         with:
           path: ${{ env.APP }}/data
           key: tracker-db-${{ github.run_id }}
+
+      - name: Save the page as a file you can download
+        run: |
+          cd site
+          git init -q && git checkout -q -b latest-page
+          cp index.html stock-tracker.html && git add stock-tracker.html
+          git -c user.name=github-actions -c user.email=actions@github.com commit -qm "Page of $(date -u +%F)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" latest-page
+          rm -rf .git stock-tracker.html
 
       - uses: actions/upload-pages-artifact@v3
         with:
