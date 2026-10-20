@@ -85,6 +85,8 @@ def build(con, cfg, sym):
     lines.append("**Why (long term):**")
     lines += [f"- {sources.md(x)}" for x in lr]
     S.append(("Recommendation and its basis", lines))
+    from . import targets
+    S.append(("Target price and expected time", targets.lines(targets.for_symbol(con, sym))))
 
     # 2. risks
     risks = []

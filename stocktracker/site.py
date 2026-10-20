@@ -9,7 +9,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from . import DISCLAIMER, analysis, portfolio, report, sources
+from . import DISCLAIMER, analysis, portfolio, report, sources, targets
 from .prices import history
 
 CHART_DAYS = 60
@@ -36,7 +36,7 @@ def _price(con, sym):
     return last, (last / prev - 1) * 100 if prev else None
 
 
-def _row(con, r, sym, name, score, score_txt, line, extra="", rank=None):
+def _row(con, r, sym, name, score, score_txt, line, extra="", rank=None, target=""):
     last, chg = _price(con, sym)
     p = "" if last is None else f"₹{last:,.2f}" + ("" if chg is None else
                                                   f" <span class='{'up' if chg >= 0 else 'dn'}'>{chg:+.1f}%</span>")
@@ -45,14 +45,20 @@ def _row(con, r, sym, name, score, score_txt, line, extra="", rank=None):
     return (f"<a class='row' href='#s/{_e(sym)}'><div class='r1'>"
             + ("" if rank is None else f"<span class='rk'>{rank}</span>") + f"<b>{_e(sym)}</b>"
             f"<span class='nm'>{_e(name)}</span><span class='sc {tone}'>{_e(score_txt)}</span></div>"
-            f"<div class='r2'><span class='px'>{p}</span>{extra}</div><div class='why'>{_e(line)}</div></a>")
+            f"<div class='r2'><span class='px'>{p}</span>{extra}</div>"
+            + (f"<div class='tg'>{_e(target)}</div>" if target else "") + f"<div class='why'>{_e(line)}</div></a>")
 
 
 def build(con, cfg, steps=(), notes=()):
     allsig = analysis.latest_signals(con)
     _, _, avoid = report.recommended(con, cfg)
     pos = portfolio.active(con)
-    rows, syms, picked = {k: [] for k, *_ in LISTS}, [], {}
+    rows, syms, picked, tcache = {k: [] for k, *_ in LISTS}, [], {}, {}
+
+    def tgt(sym):
+        if sym not in tcache:
+            tcache[sym] = targets.for_symbol(con, sym)
+        return tcache[sym]
 
     # Every analysed share, best first; the ones that pass the buy rule come before a divider.
     for key, df, col, rc, cut in (
@@ -71,7 +77,9 @@ def build(con, cfg, steps=(), notes=()):
             n += cut is None or sc >= cut
             rows[key].append(_row(con, r, r.symbol, r.name, sc,
                                   f"{sc:+.0f}" if col == "short_score" else f"{sc:.0f}/100",
-                                  sources.plain(reasons[0]) if reasons else "", rank=i))
+                                  sources.plain(reasons[0]) if reasons else "", rank=i,
+                                  target=targets.short_text(tgt(r.symbol)["short"]) if key == "short" else
+                                  targets.long_text(tgt(r.symbol)["long"]) if key == "long" else ""))
             syms.append(r.symbol)
         picked[key] = (n, len(df))
 
@@ -158,7 +166,7 @@ def detail_html(con, cfg, sym):
         if title == "Note":
             continue
         inner = report._lines_html(lines[3:] if i == 0 else lines)
-        body.append(f"<details class='card'{' open' if i == 0 else ''}><summary>{_e(title)}</summary>{inner}</details>")
+        body.append(f"<details class='card'{' open' if i == 0 or title.startswith('Target') else ''}><summary>{_e(title)}</summary>{inner}</details>")
     return "".join(head + body)
 
 
@@ -212,6 +220,7 @@ text-decoration:none;color:var(--fg)}.tile .ic{font-size:1.4rem}.tile .n{font-si
 .fm{display:grid;grid-template-columns:1fr 1fr;gap:8px}.fm label{display:flex;flex-direction:column;font-size:.8rem;color:var(--muted)}
 .fm .w{grid-column:1/3}.fm input,.fm select{box-sizing:border-box;width:100%;min-width:0;font-size:1rem;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
 #msg{margin:8px 0;font-weight:600}
+.tg{font-size:.85rem;font-weight:600;margin-top:3px}
 .hidden{display:none}h2{border:0;margin:8px 0 2px}
 """
 

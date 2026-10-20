@@ -11,7 +11,8 @@ KEYS = ["longName", "sector", "industry", "marketCap", "trailingPE", "forwardPE"
         "returnOnEquity", "returnOnAssets", "debtToEquity", "profitMargins", "operatingMargins",
         "revenueGrowth", "earningsGrowth", "dividendYield", "currentRatio", "beta",
         "fiftyTwoWeekHigh", "fiftyTwoWeekLow", "heldPercentInsiders", "heldPercentInstitutions",
-        "longBusinessSummary", "currentPrice", "bookValue", "totalDebt", "totalCash", "freeCashflow"]
+        "longBusinessSummary", "currentPrice", "bookValue", "totalDebt", "totalCash", "freeCashflow",
+        "targetMeanPrice", "targetHighPrice", "targetLowPrice", "numberOfAnalystOpinions"]
 
 
 def _pct(x):
