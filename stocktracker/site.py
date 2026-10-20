@@ -4,6 +4,7 @@ details of a share when its line is tapped. Details are drawn only when opened, 
 page stays light."""
 import html
 import json
+import os
 from datetime import datetime
 
 import pandas as pd
@@ -126,9 +127,16 @@ def build(con, cfg, steps=(), notes=()):
              for k, t, ic, sub in LISTS}
     lists["alerts"] = dict(title="🔔 Reminders", sub="Last 7 days, newest first", html=alerts_html)
     track = " · ".join(analysis.track_text(analysis.track_record(con)))
-    data = json.dumps(dict(lists=lists, details=details, charts=charts, market=market), ensure_ascii=False).replace("</", "<\\/")
+    label = {"bought": "bought", "sold": "sold", "short": "short", "want_buy": "want to buy", "want_sell": "want to sell"}
+    mine = [dict(share=p.symbol, status=label[p.kind], **{k: (None if pd.isna(getattr(p, c)) else float(getattr(p, c)))
+                                                          for k, c in (("qty", "qty"), ("price", "price"), ("target", "target"),
+                                                                       ("stop_loss", "stop_loss"))}, note=p.note or "")
+            for p in pos.itertuples()]
+    names = [[r[0], r[1] or ""] for r in con.execute("SELECT symbol, name FROM symbols ORDER BY symbol")]
+    data = json.dumps(dict(lists=lists, details=details, charts=charts, market=market, mine=mine, names=names,
+                           repo=os.environ.get("GITHUB_REPOSITORY", ""), built=int(datetime.now().timestamp())), ensure_ascii=False).replace("</", "<\\/")
     notes_html = "".join(f"<p class='note'>{_e(n)}</p>" for n in notes)
-    return PAGE.format(css=report.CSS + CSS, status=_e(status), tiles=tiles, notes=notes_html,
+    return PAGE.format(editjs=EDIT_JS, css=report.CSS + CSS, status=_e(status), tiles=tiles, notes=notes_html,
                        track=_e(track), disclaimer=_e(DISCLAIMER), data=data)
 
 
@@ -197,6 +205,13 @@ text-decoration:none;color:var(--fg)}.tile .ic{font-size:1.4rem}.tile .n{font-si
 .lg{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:.8rem;margin-top:4px}.lg span{cursor:pointer;white-space:nowrap}
 .lg span.off{opacity:.35;text-decoration:line-through}.lg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px}
 .tip{font-size:.82rem;background:var(--card);border-radius:8px;padding:6px 8px;margin-top:6px}
+.btn{display:block;text-align:center;padding:11px;border-radius:12px;background:var(--link);color:#fff;text-decoration:none;font-weight:600;margin:8px 0;border:0;font-size:1rem;width:100%;cursor:pointer}
+.btn.light{background:var(--bg);color:var(--link);border:1px solid var(--line)}
+.ed{display:flex;align-items:center;gap:8px;padding:10px 12px;margin:8px 0;border-radius:12px;background:var(--bg);border:1px solid var(--line)}
+.ed div{flex:1;min-width:0}.ed button{border:0;background:var(--bad);color:var(--badt);border-radius:8px;padding:8px 10px;font-size:.9rem;cursor:pointer}
+.fm{display:grid;grid-template-columns:1fr 1fr;gap:8px}.fm label{display:flex;flex-direction:column;font-size:.8rem;color:var(--muted)}
+.fm .w{grid-column:1/3}.fm input,.fm select{box-sizing:border-box;width:100%;min-width:0;font-size:1rem;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+#msg{margin:8px 0;font-weight:600}
 .hidden{display:none}h2{border:0;margin:8px 0 2px}
 """
 
@@ -216,9 +231,11 @@ function show(){{
   if(h.startsWith('l/')&&D.lists[h.slice(2)]){{ const l=D.lists[h.slice(2)]; title=l.title; html=`<p class='muted'>${{l.sub}}</p>`+l.html; }}
   else if(h==='alerts'){{ const l=D.lists.alerts; title=l.title; html=`<p class='muted'>${{l.sub}}</p>`+l.html; }}
   else if(h.startsWith('s/')&&D.details[h.slice(2)]){{ title='Share details'; html=D.details[h.slice(2)]; }}
+  else if(h.startsWith('edit/')&&EDIT[h.slice(5)]){{ title='✎ '+EDIT[h.slice(5)].t; html=editView(h.slice(5)); }}
+  if(html!==null&&['l/bought','l/sold','l/watch'].includes(h)) html=`<a class='btn' href='#edit/${{h.slice(2)}}'>＋ Add or 🗑 remove shares</a>`+pendingNote()+html;
   $('home').classList.toggle('hidden',html!==null); $('view').classList.toggle('hidden',html===null);
   $('back').classList.toggle('hidden',html===null); $('title').textContent=title;
-  if(html!==null){{ $('view').innerHTML=html; document.querySelectorAll('.chart').forEach(drawChart); }} window.scrollTo(0,0);
+  if(html!==null){{ $('view').innerHTML=html; document.querySelectorAll('.chart').forEach(drawChart); if(h.startsWith('edit/')) bindEdit(h.slice(5)); }} window.scrollTo(0,0);
 }}
 const SER=[['p','Price ₹','#2563eb'],['t','Traded qty','#cbd5e1'],['v','Delivery qty','#64748b'],
   ['b','Big players bought','#16a34a'],['s','Big players sold','#dc2626'],['f','FII net ₹cr','#f59e0b'],['i','DII net ₹cr','#9333ea']];
@@ -267,5 +284,78 @@ function savePage(){{
   a.href=URL.createObjectURL(new Blob(['<!doctype html>'+document.documentElement.outerHTML],{{type:'text/html'}}));
   a.download='stock-tracker-'+d+'.html'; document.body.appendChild(a); a.click(); a.remove();
 }}
+{editjs}
 addEventListener('hashchange',show); show();
 </script></body></html>"""
+
+# Editing your shares from the page: the list is encrypted in the browser with your page password,
+# saved to my_shares.enc in your GitHub repository, and an update is started straight away.
+EDIT_JS = r"""
+const EDIT={bought:{t:'Bought',k:['bought']},sold:{t:'Sold',k:['sold','short']},watch:{t:'Watchlist',k:['want to buy','want to sell']}};
+const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ls=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v)}catch(e){return null}};
+function mine(){const m=JSON.parse(ls('mine')||'null');return m&&m.t>D.built*1000?m.rows:D.mine;}
+function pendingNote(){const m=JSON.parse(ls('mine')||'null');return m&&m.t>D.built*1000?
+  "<p class='note'>Your last change is saved. This list updates when the next update finishes, in about 5 minutes.</p>":"";}
+function editView(key){
+  const E=EDIT[key], rows=mine().map((r,i)=>[r,i]).filter(([r])=>E.k.includes(r.status));
+  let h=`<div id='msg'></div>`;
+  h+=rows.map(([r,i])=>`<div class='ed'><div><b>${esc(r.share)}</b> <small class='muted'>${esc(r.status)}</small><br><small class='muted'>`+
+    [r.qty?r.qty+' shares':'',r.price?'@ ₹'+r.price:'',r.target?'target ₹'+r.target:'',r.stop_loss?'stop ₹'+r.stop_loss:'',esc(r.note)].filter(x=>x).join(' · ')+
+    `</small></div><button data-i='${i}'>🗑 Remove</button></div>`).join('')||"<p class='muted'>No shares here yet.</p>";
+  h+=`<details class='card' open><summary>＋ Add a share</summary><form class='fm' id='add'>
+    <label class='w'>Share (NSE symbol or name)<input name='share' list='syms' required autocomplete='off'></label>
+    <label class='w'>Status<select name='status'>${E.k.map(k=>`<option>${k}</option>`).join('')}</select></label>
+    <label>Quantity<input name='qty' inputmode='decimal'></label><label>Price ₹<input name='price' inputmode='decimal'></label>
+    <label>Target ₹<input name='target' inputmode='decimal'></label><label>Stop loss ₹<input name='stop_loss' inputmode='decimal'></label>
+    <label class='w'>Note / reason<input name='note'></label><button class='btn w'>Save</button></form></details>
+    <datalist id='syms'>${D.names.map(([s,n])=>`<option value='${esc(s)}'>${esc(n)}</option>`).join('')}</datalist>`;
+  h+=`<details class='card' ${ls('ghtok')?'':'open'}><summary>🔑 GitHub key ${ls('ghtok')?'(saved on this phone)':'(needed once)'}</summary>
+    <p class='small'>Changes are saved to your GitHub account, so this phone needs a key once:</p><ol class='small'>
+    <li>Open <a href='https://github.com/settings/personal-access-tokens/new' target='_blank'>github.com → new fine-grained token</a> (signed in).</li>
+    <li>Name it "stock tracker", set Expiration to the longest allowed.</li>
+    <li>Repository access: <b>Only select repositories</b> → <b>${esc(D.repo.split('/')[1]||'your repository')}</b>.</li>
+    <li>Repository permissions: <b>Contents</b> = Read and write, <b>Actions</b> = Read and write.</li>
+    <li>Tap Generate token, copy it, paste below.</li></ol>
+    <input id='tok' type='password' placeholder='github_pat_…' style='width:100%;padding:9px;font-size:1rem;box-sizing:border-box'>
+    <button class='btn light' id='savetok'>Save key on this phone</button></details>`;
+  return h;
+}
+function bindEdit(key){
+  $('savetok').onclick=()=>{const t=$('tok').value.trim(); if(t){ls('ghtok',t); show();}};
+  $('add').onsubmit=e=>{e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const r={share:f.share.trim().toUpperCase(),status:f.status,note:f.note.trim()};
+    ['qty','price','target','stop_loss'].forEach(k=>r[k]=f[k].trim()?parseFloat(f[k].replace(/[,₹]/g,'')):null);
+    if(!r.share) return; save(mine().filter(x=>!(x.share===r.share&&x.status===r.status)).concat([r]), key, `${r.share} added`);};
+  document.querySelectorAll('.ed button').forEach(b=>b.onclick=()=>{const m=mine(), r=m[+b.dataset.i];
+    if(confirm(`Remove ${r.share} (${r.status})?`)) save(m.filter((_,i)=>i!=b.dataset.i), key, `${r.share} removed`);});
+}
+async function encrypt(text,pw){
+  const salt=crypto.getRandomValues(new Uint8Array(16)), iv=crypto.getRandomValues(new Uint8Array(12));
+  const k0=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveKey']);
+  const k=await crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:250000,hash:'SHA-256'},k0,{name:'AES-GCM',length:256},false,['encrypt']);
+  const d=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},k,new TextEncoder().encode(text)));
+  const b=a=>btoa(String.fromCharCode(...a)); return JSON.stringify({s:b(salt),i:b(iv),d:b(d)});
+}
+async function save(rows,key,what){
+  const say=(t,bad)=>{$('msg').textContent=t;$('msg').style.color=bad?'var(--badt)':'var(--goodt)';window.scrollTo(0,0);};
+  const tok=ls('ghtok'); if(!tok) return say('Add your GitHub key first (see 🔑 below).',1);
+  if(!D.repo) return say('This page copy cannot save changes. Open your website instead.',1);
+  let pw=null; try{pw=sessionStorage.getItem('stpw')||localStorage.getItem('stpw')}catch(e){}
+  if(!pw) pw=prompt('Enter your page password to save'); if(!pw) return;
+  say('Saving…');
+  const cell=v=>{v=String(v??'');return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
+  const csv='share,status,qty,price,target,stop_loss,note\n'+rows.map(r=>['share','status','qty','price','target','stop_loss','note'].map(k=>cell(r[k])).join(',')).join('\n');
+  const H={Authorization:'Bearer '+tok,Accept:'application/vnd.github+json'}, api=`https://api.github.com/repos/${D.repo}`;
+  try{
+    const cur=await fetch(`${api}/contents/my_shares.enc?ref=main`,{headers:H,cache:'no-store'});
+    if(cur.status===401||cur.status===403) throw new Error('GitHub did not accept the key. Check its permissions (Contents and Actions: Read and write).');
+    const sha=cur.ok?(await cur.json()).sha:undefined;
+    const put=await fetch(`${api}/contents/my_shares.enc`,{method:'PUT',headers:H,body:JSON.stringify({message:'Update my shares (encrypted)',
+      content:btoa(await encrypt(csv,pw)),sha,branch:'main'})});
+    if(!put.ok) throw new Error('Saving failed ('+put.status+'). Check the key permissions.');
+    ls('mine',JSON.stringify({t:Date.now(),rows}));
+    const run=await fetch(`${api}/actions/workflows/daily.yml/dispatches`,{method:'POST',headers:H,body:JSON.stringify({ref:'main'})});
+    show(); say(`✓ ${what}. `+(run.ok?'The update has started; new numbers show in about 5 minutes.':'It will show after the next scheduled update.'));
+  }catch(e){ say(e.message||'Could not reach GitHub. Check your internet and try again.',1); }
+}
+"""

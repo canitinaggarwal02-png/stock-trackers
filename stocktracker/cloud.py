@@ -1,5 +1,5 @@
 """Running the tracker on GitHub's free servers once a day, for use from a phone.
-Your shares come from the MY_SHARES secret (or my_shares.csv). The result is a web page
+Your shares come from my_shares.enc (edited on the page), else the MY_SHARES secret (or my_shares.csv). The result is a web page
 (GitHub Pages), locked with your password, plus Telegram messages if you set a bot up."""
 import base64
 import csv
@@ -31,6 +31,12 @@ def sync_shares(con, path):
     rows removed from the file stop being tracked. Returns a list of messages."""
     msgs, keep = [], set()
     text = os.environ.get("MY_SHARES", "").strip()
+    enc, pw = Path(os.environ.get("SHARES_FILE", "my_shares.enc")), os.environ.get("SITE_PASSWORD", "")
+    if enc.exists() and pw:   # the list you edit on the web page wins over the MY_SHARES secret
+        try:
+            text = unlock_text(enc.read_text(), pw).strip()
+        except Exception:
+            msgs.append("Could not open my_shares.enc with SITE_PASSWORD (password changed?), used the MY_SHARES secret")
     if text:
         if not text.lower().startswith("share"):
             text = "share,status,qty,price,target,stop_loss,note\n" + text
@@ -160,6 +166,16 @@ def lock(page, password):
     return LOCK_PAGE.replace("__BLOB__", blob)
 
 
+def unlock_text(blob, password):
+    """Reverse of the browser's encryption of the share list (same scheme as lock())."""
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    b = {k: base64.b64decode(v) for k, v in json.loads(blob).items()}
+    key = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=b["s"], iterations=250_000).derive(password.encode())
+    return AESGCM(key).decrypt(b["i"], b["d"], None).decode()
+
+
 LOCK_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
 <title>Stock Tracker</title><style>
@@ -175,7 +191,7 @@ const B=__BLOB__;const u=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
 async function open_(pw){const k0=await crypto.subtle.importKey("raw",new TextEncoder().encode(pw),"PBKDF2",false,["deriveKey"]);
 const k=await crypto.subtle.deriveKey({name:"PBKDF2",salt:u(B.s),iterations:250000,hash:"SHA-256"},k0,{name:"AES-GCM",length:256},false,["decrypt"]);
 const t=new TextDecoder().decode(await crypto.subtle.decrypt({name:"AES-GCM",iv:u(B.i)},k,u(B.d)));document.open();document.write(t);document.close();}
-async function go(pw,save){try{await open_(pw);if(save)try{localStorage.setItem("stpw",pw)}catch(e){}}
+async function go(pw,save){try{await open_(pw);try{sessionStorage.setItem("stpw",pw)}catch(e){}if(save)try{localStorage.setItem("stpw",pw)}catch(e){}}
 catch(e){document.getElementById("e").textContent="Wrong password";try{localStorage.removeItem("stpw")}catch(e){}}}
 document.getElementById("f").onsubmit=e=>{e.preventDefault();go(document.getElementById("p").value,document.getElementById("r").checked)};
 try{const s=localStorage.getItem("stpw");if(s)go(s,true)}catch(e){}
