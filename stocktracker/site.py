@@ -221,13 +221,15 @@ text-decoration:none;color:var(--fg)}.tile .ic{font-size:1.4rem}.tile .n{font-si
 .fm .w{grid-column:1/3}.fm input,.fm select{box-sizing:border-box;width:100%;min-width:0;font-size:1rem;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
 #msg{margin:8px 0;font-weight:600}
 .tg{font-size:.85rem;font-weight:600;margin-top:3px}
+.rf{border:1px solid var(--line);background:var(--bg);color:var(--link);border-radius:20px;padding:7px 12px;font-size:.95rem;font-weight:600;cursor:pointer;white-space:nowrap}
 .hidden{display:none}h2{border:0;margin:8px 0 2px}
 """
 
 PAGE = """<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'><meta name='robots' content='noindex'>
 <title>Stock Tracker</title><style>{css}</style></head><body><main>
-<div class='bar'><button class='back hidden' id='back' onclick='history.back()'>‹</button><h1 id='title'>📈 Stock Tracker</h1></div>
+<div class='bar'><button class='back hidden' id='back' onclick='history.back()'>‹</button><h1 id='title'>📈 Stock Tracker</h1><button class='rf' id='rf' onclick='refresh()'>↻ Refresh</button></div>
+<div id='rfmsg' class='note hidden'></div>
 <div id='home'><p class='muted'>{status}</p>{notes}<div class='tiles'>{tiles}</div>
 <p class='muted small'><b>Track record:</b> {track}</p><p><a href='#' onclick='savePage();return false'>⬇ Save this page as an HTML file</a></p></div>
 <div id='view' class='hidden'></div>
@@ -240,11 +242,14 @@ function show(){{
   if(h.startsWith('l/')&&D.lists[h.slice(2)]){{ const l=D.lists[h.slice(2)]; title=l.title; html=`<p class='muted'>${{l.sub}}</p>`+l.html; }}
   else if(h==='alerts'){{ const l=D.lists.alerts; title=l.title; html=`<p class='muted'>${{l.sub}}</p>`+l.html; }}
   else if(h.startsWith('s/')&&D.details[h.slice(2)]){{ title='Share details'; html=D.details[h.slice(2)]; }}
+  else if(h==='key'){{ title='🔑 GitHub key'; html=(ls('ghtok')?"<p class='note'>Key saved. Go back and tap ↻ Refresh.</p>":"")+keyCard(); }}
   else if(h.startsWith('edit/')&&EDIT[h.slice(5)]){{ title='✎ '+EDIT[h.slice(5)].t; html=editView(h.slice(5)); }}
-  if(html!==null&&['l/bought','l/sold','l/watch'].includes(h)) html=`<a class='btn' href='#edit/${{h.slice(2)}}'>＋ Add or 🗑 remove shares</a>`+pendingNote()+html;
+  if(html!==null&&['l/bought','l/sold','l/watch'].includes(h)) html=(ONLINE?`<a class='btn' href='#edit/${{h.slice(2)}}'>＋ Add or 🗑 remove shares</a>`:
+    `<a class='btn' href='${{SITE}}#edit/${{h.slice(2)}}' target='_blank'>＋ Add or 🗑 remove shares (opens your website)</a>`+
+    `<p class='note'>This is a saved copy from ${{new Date(D.built*1000).toLocaleString('en-IN')}}. Shares you add or remove show on your website, not in this copy.</p>`)+pendingNote()+html;
   $('home').classList.toggle('hidden',html!==null); $('view').classList.toggle('hidden',html===null);
   $('back').classList.toggle('hidden',html===null); $('title').textContent=title;
-  if(html!==null){{ $('view').innerHTML=html; document.querySelectorAll('.chart').forEach(drawChart); if(h.startsWith('edit/')) bindEdit(h.slice(5)); }} window.scrollTo(0,0);
+  if(html!==null){{ $('view').innerHTML=html; document.querySelectorAll('.chart').forEach(drawChart); if(h.startsWith('edit/')) bindEdit(h.slice(5)); if(h==='key') bindKey(); }} window.scrollTo(0,0);
 }}
 const SER=[['p','Price ₹','#2563eb'],['t','Traded qty','#cbd5e1'],['v','Delivery qty','#64748b'],
   ['b','Big players bought','#16a34a'],['s','Big players sold','#dc2626'],['f','FII net ₹cr','#f59e0b'],['i','DII net ₹cr','#9333ea']];
@@ -302,7 +307,13 @@ addEventListener('hashchange',show); show();
 EDIT_JS = r"""
 const EDIT={bought:{t:'Bought',k:['bought']},sold:{t:'Sold',k:['sold','short']},watch:{t:'Watchlist',k:['want to buy','want to sell']}};
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const ls=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v)}catch(e){return null}};
+const MEM={};   // used when the browser does not allow storage (some saved copies, private tabs)
+const ls=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k)??MEM[k]??null;if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v)}
+  catch(e){if(v===undefined)return MEM[k]??null;}if(v===null)delete MEM[k];else if(v!==undefined)MEM[k]=v;};
+const SITE=D.repo?`https://${D.repo.split('/')[0].toLowerCase()}.github.io/${D.repo.split('/')[1]}/`:'';
+const ONLINE=!!D.repo&&location.protocol==='https:'&&!!window.crypto&&!!crypto.subtle;
+window.addEventListener('error',e=>{const v=document.getElementById('view');if(v)v.insertAdjacentHTML('afterbegin',
+  `<p class='note' style='color:var(--badt)'>Something went wrong: ${esc(e.message)}. Please send me a screenshot.</p>`);});
 function mine(){const m=JSON.parse(ls('mine')||'null');return m&&m.t>D.built*1000?m.rows:D.mine;}
 function pendingNote(){const m=JSON.parse(ls('mine')||'null');return m&&m.t>D.built*1000?
   "<p class='note'>Your last change is saved. This list updates when the next update finishes, in about 5 minutes.</p>":"";}
@@ -319,8 +330,12 @@ function editView(key){
     <label>Target ₹<input name='target' inputmode='decimal'></label><label>Stop loss ₹<input name='stop_loss' inputmode='decimal'></label>
     <label class='w'>Note / reason<input name='note'></label><button class='btn w'>Save</button></form></details>
     <datalist id='syms'>${D.names.map(([s,n])=>`<option value='${esc(s)}'>${esc(n)}</option>`).join('')}</datalist>`;
-  h+=`<details class='card' ${ls('ghtok')?'':'open'}><summary>🔑 GitHub key ${ls('ghtok')?'(saved on this phone)':'(needed once)'}</summary>
-    <p class='small'>Changes are saved to your GitHub account, so this phone needs a key once:</p><ol class='small'>
+  h+=keyCard();
+  return h;
+}
+function keyCard(){
+  return `<details class='card' ${ls('ghtok')?'':'open'}><summary>🔑 GitHub key ${ls('ghtok')?'(saved on this phone)':'(needed once)'}</summary>
+    <p class='small'>Adding or removing shares and the Refresh button work through your GitHub account, so this phone needs a key once:</p><ol class='small'>
     <li>Open <a href='https://github.com/settings/personal-access-tokens/new' target='_blank'>github.com → new fine-grained token</a> (signed in).</li>
     <li>Name it "stock tracker", set Expiration to the longest allowed.</li>
     <li>Repository access: <b>Only select repositories</b> → <b>${esc(D.repo.split('/')[1]||'your repository')}</b>.</li>
@@ -328,10 +343,10 @@ function editView(key){
     <li>Tap Generate token, copy it, paste below.</li></ol>
     <input id='tok' type='password' placeholder='github_pat_…' style='width:100%;padding:9px;font-size:1rem;box-sizing:border-box'>
     <button class='btn light' id='savetok'>Save key on this phone</button></details>`;
-  return h;
 }
+function bindKey(){ $('savetok').onclick=()=>{const t=$('tok').value.trim(); if(t){ls('ghtok',t); show();}}; }
 function bindEdit(key){
-  $('savetok').onclick=()=>{const t=$('tok').value.trim(); if(t){ls('ghtok',t); show();}};
+  bindKey();
   $('add').onsubmit=e=>{e.preventDefault(); const f=Object.fromEntries(new FormData(e.target)); const r={share:f.share.trim().toUpperCase(),status:f.status,note:f.note.trim()};
     ['qty','price','target','stop_loss'].forEach(k=>r[k]=f[k].trim()?parseFloat(f[k].replace(/[,₹]/g,'')):null);
     if(!r.share) return; save(mine().filter(x=>!(x.share===r.share&&x.status===r.status)).concat([r]), key, `${r.share} added`);};
@@ -344,6 +359,30 @@ async function encrypt(text,pw){
   const k=await crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:250000,hash:'SHA-256'},k0,{name:'AES-GCM',length:256},false,['encrypt']);
   const d=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},k,new TextEncoder().encode(text)));
   const b=a=>btoa(String.fromCharCode(...a)); return JSON.stringify({s:b(salt),i:b(iv),d:b(d)});
+}
+async function refresh(){
+  if(!ONLINE){ location.href=SITE||'#'; return; }
+  const tok=ls('ghtok'); if(!tok){ location.hash='key'; return; }
+  const m=$('rfmsg'), say=t=>{m.innerHTML=t; m.classList.remove('hidden');}, btn=$('rf');
+  const H={Authorization:'Bearer '+tok,Accept:'application/vnd.github+json'}, api=`https://api.github.com/repos/${D.repo}`;
+  btn.disabled=true; const t0=Date.now();
+  try{
+    const r=await fetch(`${api}/actions/workflows/daily.yml/dispatches`,{method:'POST',headers:H,body:JSON.stringify({ref:'main'})});
+    if(r.status===401||r.status===403||r.status===404) throw new Error('GitHub did not accept the key. Check that Actions is set to Read and write.');
+    if(!r.ok) throw new Error('GitHub said '+r.status);
+    say('↻ Fetching the latest news, prices and deals and redoing the picks… This takes about 5 minutes. Keep this page open; it reloads by itself.');
+    for(let i=0;i<60;i++){
+      await new Promise(z=>setTimeout(z,20000));
+      const q=await fetch(`${api}/actions/runs?per_page=3&event=workflow_dispatch`,{headers:H,cache:'no-store'}); if(!q.ok) continue;
+      const run=((await q.json()).workflow_runs||[]).find(x=>Date.parse(x.created_at)>=t0-90000); if(!run) continue;
+      const mins=Math.round((Date.now()-t0)/60000);
+      if(run.status!=='completed'){ say(`↻ Updating… ${mins} min so far. Keep this page open; it reloads by itself.`); continue; }
+      if(run.conclusion==='success'){ say('✓ Done. Loading the new page…'); setTimeout(()=>location.reload(),15000); return; }
+      throw new Error('The update stopped with an error. Open GitHub → Actions to see why, or tell me.');
+    }
+    say('It is taking longer than usual. Reload this page in a few minutes.');
+  }catch(e){ say(`<span style='color:var(--badt)'>${esc(e.message||'Could not reach GitHub. Check your internet.')}</span>`); }
+  btn.disabled=false;
 }
 async function save(rows,key,what){
   const say=(t,bad)=>{$('msg').textContent=t;$('msg').style.color=bad?'var(--badt)':'var(--goodt)';window.scrollTo(0,0);};

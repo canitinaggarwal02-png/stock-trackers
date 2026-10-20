@@ -75,8 +75,8 @@ def _entry_time(e):
     return datetime.now(timezone.utc)
 
 
-def fetch_feed(url):
-    r = http.get(url, retries=2)
+def fetch_feed(url, retries=2, timeout=25):
+    r = http.get(url, retries=retries, timeout=timeout)
     feed = feedparser.parse(r.content)
     out = []
     for e in feed.entries:
@@ -150,12 +150,12 @@ def collect_news(con, cfg, focus_symbols, universe):
                 stats["items"] += 1
                 stats["links"] += _store(con, it, m, macro)
 
-    for url in dict.fromkeys(GLOBAL_FEEDS + list(ncfg.get("extra_rss_feeds") or [])):
-        try:
-            handle(fetch_feed(url))
-            stats["feeds_ok"] += 1
-        except Exception as e:
-            stats["feeds_failed"].append(f"{url}: {e}")
+    # Feeds are downloaded side by side (storing stays on this thread); a slow or blocked site
+    # no longer holds up the rest, so a refresh takes minutes, not half an hour.
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    pool = ThreadPoolExecutor(max_workers=8)
+    jobs = {pool.submit(fetch_feed, url, 1, 15): (url, None)
+            for url in dict.fromkeys(GLOBAL_FEEDS + list(ncfg.get("extra_rss_feeds") or []))}
 
     if ncfg.get("google_news_per_company"):
         rows = con.execute(
@@ -164,10 +164,14 @@ def collect_news(con, cfg, focus_symbols, universe):
         days = max(1, ncfg["lookback_hours"] // 24)
         for r in rows[: ncfg["google_news_company_limit"]]:
             q = quote_plus(f'"{clean_name(r["name"])}" when:{days}d')
-            try:
-                handle(fetch_feed(GNEWS_SEARCH.format(q=q)), must_include=r["symbol"])
-                stats["feeds_ok"] += 1
-            except Exception as e:
-                stats["feeds_failed"].append(f"Google News {r['symbol']}: {e}")
+            jobs[pool.submit(fetch_feed, GNEWS_SEARCH.format(q=q), 1, 15)] = (f"Google News {r['symbol']}", r["symbol"])
+    for fut in as_completed(jobs):
+        name, sym = jobs[fut]
+        try:
+            handle(fut.result(), must_include=sym)
+            stats["feeds_ok"] += 1
+        except Exception as e:
+            stats["feeds_failed"].append(f"{name}: {e}")
+    pool.shutdown()
     con.commit()
     return stats
