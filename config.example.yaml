@@ -1,0 +1,97 @@
+# Copy this file to config.yaml and edit it.
+
+# Where the local database lives
+db_path: data/tracker.db
+
+# How many shares to analyse in depth each day (prices, fundamentals).
+# The full NSE+BSE list (~5000+ names) is always refreshed and used to match news,
+# but downloading prices for every share is slow, so deep analysis covers:
+#   your portfolio + watchlist + every share that had news / bulk deals today
+#   + the top N by market activity.
+deep_analysis_limit: 150
+
+# Daily schedule (24h clock, India time) used by `python run.py scheduler`
+schedule:
+  full_update: "07:30"        # before market opens: share list, news, deals, analysis
+  intraday_news_every_min: 60 # news + alert check during the day
+  after_market: "18:30"       # bulk/block deals, delivery data, FII/DII are published after close
+  # While the dashboard is open it also refreshes by itself: the daily refresh at
+  # full_update time (or as soon as it opens, if that was missed) and news every hour.
+  auto_in_dashboard: true
+
+news:
+  # Google News search is done per-company for your portfolio/watchlist and
+  # for the most active shares. This covers news from all over the world.
+  google_news_per_company: true
+  google_news_company_limit: 80
+  # Lookback window for news
+  lookback_hours: 48
+  extra_rss_feeds:
+    - https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms
+    - https://economictimes.indiatimes.com/markets/stocks/news/rssfeeds/2146842.cms
+    - https://www.moneycontrol.com/rss/buzzingstocks.xml
+    - https://www.moneycontrol.com/rss/business.xml
+    - https://www.livemint.com/rss/markets
+    - https://www.business-standard.com/rss/markets-106.rss
+    - https://feeds.feedburner.com/ndtvprofit-latest
+    - https://www.cnbctv18.com/commonfeeds/v1/cne/rss/market.xml
+    - https://www.financialexpress.com/market/feed/
+    - https://www.thehindubusinessline.com/markets/feeder/default.rss
+
+# Well-known market investors to watch for in bulk/block deals and news.
+# Add or remove names freely; matching is case-insensitive and partial.
+big_investors:
+  - Rakesh Jhunjhunwala
+  - Rekha Jhunjhunwala
+  - Rare Enterprises
+  - Radhakishan Damani
+  - Ashish Kacholia
+  - Vijay Kedia
+  - Kedia Securities
+  - Dolly Khanna
+  - Mukul Agrawal
+  - Sunil Singhania
+  - Abakkus
+  - Porinju Veliyath
+  - Equity Intelligence
+  - Ashish Dhawan
+  - Nemish Shah
+  - Akash Bhanshali
+  - Madhusudan Kela
+  - Anil Kumar Goel
+  - Ramesh Damani
+  - Nalanda
+  - Goldman Sachs
+  - Morgan Stanley
+  - Societe Generale
+  - Government Pension Fund Global
+  - Life Insurance Corporation
+
+# Alert rules for your positions and watchlist
+alerts:
+  stop_loss_pct: 8          # alert if a holding falls this much below your buy price (when you set no stop loss)
+  target_pct: 20            # alert if a holding rises this much above your buy price (when you set no target)
+  volume_spike_ratio: 2.5   # today's volume vs 20-day average
+  delivery_spike_ratio: 1.8 # today's delivery qty vs 20-day average
+  big_move_pct: 4           # single-day price move
+  min_hours_between_same_alert: 20
+
+# Dashboard password. Required before opening the dashboard to your phone
+# (python run.py dashboard --phone). Leave empty to use it only on this computer.
+dashboard:
+  password: ""
+
+notifications:
+  desktop: true
+  # Telegram = use the tracker from your phone anywhere (reminders + commands like /picks, /bought).
+  telegram:
+    enabled: false
+    bot_token: ""     # create a bot with @BotFather
+    chat_id: ""       # run `python run.py bot`, send /start to your bot, it replies with this number
+  email:
+    enabled: false
+    smtp_host: smtp.gmail.com
+    smtp_port: 587
+    username: ""
+    password: ""      # for Gmail use an App Password, not your normal password
+    to: ""

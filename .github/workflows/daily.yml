@@ -1,0 +1,75 @@
+# Runs the stock tracker on GitHub's free servers every weekday and publishes the result as
+# your own password-protected web page. "Run workflow" on the Actions tab = Refresh now.
+name: Stock tracker
+
+on:
+  schedule:
+    - cron: "0 2 * * 1-5"     # 07:30 India time, Monday to Friday
+    - cron: "0 13 * * 1-5"    # 18:30 India time, after NSE publishes the day's data
+  workflow_dispatch:          # the "Run workflow" button
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: stock-tracker
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find the tracker
+        run: |
+          if [ -f stock-tracker.zip ]; then unzip -oq stock-tracker.zip; fi
+          if [ -f stock-tracker/run.py ]; then echo "APP=stock-tracker" >> "$GITHUB_ENV"; else echo "APP=." >> "$GITHUB_ENV"; fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install pandas requests feedparser yfinance PyYAML cryptography
+
+      - name: Bring back the saved records
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.APP }}/data
+          key: tracker-db-${{ github.run_id }}
+          restore-keys: tracker-db-
+
+      - name: Collect, analyse and build the page
+        working-directory: ${{ env.APP }}
+        env:
+          MY_SHARES: ${{ secrets.MY_SHARES }}
+          SITE_PASSWORD: ${{ secrets.SITE_PASSWORD }}
+          SITE_DIR: ${{ github.workspace }}/site
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}   # optional
+          DEEP_ANALYSIS_LIMIT: "80"
+        run: python run.py cloud my_shares.csv
+
+      - name: Keep the records for next time
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.APP }}/data
+          key: tracker-db-${{ github.run_id }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  publish:
+    needs: update
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
